@@ -12,6 +12,20 @@ $secret_key = "a8Fz9KlmQxR2tY7uW5pLsD3vBnH6jKzX4";
 $method = $_SERVER['REQUEST_METHOD'];
 $uri = $_SERVER['REQUEST_URI'];
 
+$file = "inventory.json";
+
+if (!file_exists($file)) {
+    // premiere requete, l'inventaire n'exite pas, le créer
+    file_put_contents($file, json_encode([
+            ["id" => 1, "item" => "Casque", "quantity" => 10],
+            ["id" => 2, "item" => "Gants", "quantity" => 25],
+            ["id" => 3, "item" => "Harnais", "quantity" => 5]
+    ]));
+}
+
+// récupérer l'inventaire depuis le JSON
+$inventory = json_decode(file_get_contents($file), true);
+
 // =========================
 // ROUTE LOGIN
 // =========================
@@ -30,7 +44,7 @@ if (strpos($uri, "/login") !== false && $method === "POST") {
         $payload = [
             "iss" => "safestep-api",
             "iat" => time(),
-            "exp" => time() + 3600,
+            "exp" => time() + 3600 * 3, // 3H
             "user" => $data->username
         ];
 
@@ -80,11 +94,7 @@ if (strpos($uri, "/inventory") !== false && $method === "GET") {
 
         // 4️⃣ Réponse OK
         http_response_code(200);
-        echo json_encode([
-            ["id" => 1, "item" => "Casque", "quantity" => 10],
-            ["id" => 2, "item" => "Gants", "quantity" => 25],
-            ["id" => 3, "item" => "Harnais", "quantity" => 5]
-        ]);
+        echo json_encode($inventory);
 
     } catch (Exception $e) {
         http_response_code(401);
@@ -94,6 +104,58 @@ if (strpos($uri, "/inventory") !== false && $method === "GET") {
     exit;
 }
 
+
+if (strpos($uri, "/inventory") !== false && $method === "POST") {
+    // Vérification JWT (comme pour GET)
+    $headers = getallheaders();
+    $authHeader = $headers['Authorization'] ?? '';
+
+    if (!$authHeader) {
+        http_response_code(401);
+        echo json_encode(["message" => "Token manquant"]);
+        exit;
+    }
+
+    $arr = explode(" ", $authHeader);
+    $jwt = $arr[1];
+
+    // 2️⃣ Mauvais format
+    if ($arr[0] !== "Bearer" || !isset($arr[1])) {
+        http_response_code(401);
+        echo json_encode(["message" => "Format token invalide"]);
+        exit;
+    }
+
+    try {
+        JWT::decode($jwt, new Key($secret_key, 'HS256'));
+    } catch (Exception $e) {
+        http_response_code(401);
+        echo json_encode(["message" => "Token invalide"]);
+        exit;
+    }
+
+    // Récupération données
+    $data = json_decode(file_get_contents("php://input"), true);
+
+    if (!isset($data['item']) || !isset($data['quantity'])) {
+        http_response_code(400);
+        echo json_encode(["message" => "Données invalides"]);
+        exit;
+    }
+
+    $inventory[] = [
+        "id" => count($inventory) + 1,
+        "item" => $data['item'],
+        "quantity" => $data['quantity']
+    ];
+    // sauvegarder le nouvel inventaire
+    file_put_contents($file, json_encode($inventory));
+
+    http_response_code(201);
+    echo json_encode(["message" => "Equipement ajouté"]);
+
+    exit;
+}
 
 // =========================
 // ROUTE NON TROUVÉE
